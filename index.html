@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>图像上传页面</title>
+  <link rel="stylesheet" href="./css/ele.css">
+  <style>
+    .custom-card {
+      max-width: 900px;
+      margin: 50px auto;
+      padding: 20px;
+      width: 100%; /* 使宽度自适应 */
+    }
+    .custom-card-upload,
+    .quick-entry {
+      margin-bottom: 20px;
+    }
+    .c-upload {
+      border: 2px dashed #d9d9d9;
+      border-radius: 6px;
+      padding: 20px;
+      text-align: center;
+    }
+    .c-upload-dragger {
+      cursor: pointer;
+    }
+    .entry-title {
+      font-weight: bold;
+    }
+    .image-gallery {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .image-gallery img {
+      max-width: 100%;
+      border: 1px solid #d9d9d9;
+      border-radius: 4px;
+    }
+    .sui-wallet-link {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background-color: #409EFF;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <!-- Sui钱包链接 -->
+  <a class="sui-wallet-link" id="connect-wallet">链接到Sui钱包</a>
+
+  <div id="app">
+    <div class="el-card is-always-shadow custom-card">
+      <div class="el-card__body">
+        <div class="custom-card-upload">
+          <div class="c-upload">
+            <div class="c-upload__content">
+              <el-upload
+                class="c-upload-dragger"
+                ref="upload"
+                drag
+                :action="uploadUrl"
+                multiple
+                :before-upload="beforeUpload"
+                :on-success="handleSuccess"
+                :on-error="handleError">
+                <i class="el-icon-upload"></i>
+                <div class="el-upload__text">点击上传图片，支持拖拽上传</div>
+              </el-upload>
+            </div>
+            <div class="el-upload__tip">
+              大小不超过10MB的jpeg, jpg, webp, ico, gif, png, svg文件，<span style="color: red;">支持直接 Ctrl + V 上传</span>
+            </div>
+          </div>
+        </div>
+        <div class="quick-entry">
+          <div class="entry-title">快捷上传</div>
+          <div class="entry-list">
+            <el-button type="primary" @click="uploadClipboardImage">
+              <i class="el-icon-picture"></i> 剪切板图片
+            </el-button>
+            <el-button type="primary" @click="showUrlDialog">
+              <i class="el-icon-link"></i> 网络图URL
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="el-card is-always-shadow custom-card">
+      <div class="el-card__body">
+        <div class="entry-title">已上传图片</div>
+        <div class="image-gallery">
+          <div v-for="image in images" :key="image.url">
+            <img :src="image.url" :alt="image.name" width="200px" height="200px">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <el-dialog title="输入图片URL" :visible.sync="urlDialogVisible" @open="removePasteListener" @close="addPasteListener">
+      <el-input v-model="imageUrl" placeholder="请输入图片URL"></el-input>
+      <span slot="footer" class="dialog-footer">
+        <el-button @click="urlDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="uploadImageUrl">确定</el-button>
+      </span>
+    </el-dialog>
+  </div>
+
+  <script src="./js/vue.js"></script>
+  <script src="./js/ele.js"></script>
+  <script src="./js/web3.min.js"></script> 
+
+  <script>
+    new Vue({
+      el: '#app',
+      data() {
+        return {
+          uploadUrl: 'http://127.0.0.1:8080/upload', // 自定义上传地址
+          urlDialogVisible: false,
+          imageUrl: '',
+          images: [] // 存放已上传图片的数组
+        };
+      },
+      mounted() {
+        this.addPasteListener();
+      },
+      beforeDestroy() {
+        this.removePasteListener();
+      },
+      methods: {
+        beforeUpload(file) {
+          const isLt10M = file.size / 1024 / 1024 < 10;
+          if (!isLt10M) {
+            this.$message.error('上传图片大小不能超过 10MB!');
+          }
+          return isLt10M;
+        },
+        handleSuccess(response, file, fileList) {
+          this.$message.success('上传成功！');
+          // 将上传成功的图片加入到images数组中
+          this.images.push({
+            url: URL.createObjectURL(file.raw),
+            name: file.name
+          });
+        },
+        handleError(err, file, fileList) {
+          this.$message.error('上传失败，请重试');
+        },
+        handlePaste(event) {
+          const items = (event.clipboardData || window.clipboardData).items;
+          for (const item of items) {
+            if (item.type.indexOf('image') !== -1) {
+              const blob = item.getAsFile();
+              const file = new File([blob], 'pasted-image.png', { type: blob.type });
+              this.uploadFile(file);
+              break;
+            }
+          }
+        },
+        uploadFile(file) {
+          if (this.beforeUpload(file)) {
+            const formData = new FormData();
+            formData.append('file', file);
+            fetch(this.uploadUrl, {
+              method: 'POST',
+              body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+              this.handleSuccess(data, file, null);
+            })
+            .catch(error => {
+              this.handleError(error, file, null);
+            });
+          }
+        },
+        uploadClipboardImage() {
+          navigator.clipboard.read().then(items => {
+            for (let item of items) {
+              if (item.types.includes('image/png')) {
+                item.getType('image/png').then(blob => {
+                  const file = new File([blob], 'clipboard.png', { type: 'image/png' });
+                  this.uploadFile(file);
+                });
+              }
+            }
+          }).catch(err => {
+            this.$message.error('读取剪切板内容失败，请重试');
+          });
+        },
+        showUrlDialog() {
+          this.urlDialogVisible = true;
+        },
+        uploadImageUrl() {
+          if (this.imageUrl) {
+            // 模拟上传操作
+            console.log('Uploading image URL:', this.imageUrl);
+            this.images.push({
+              url: this.imageUrl,
+              name: 'Image from URL'
+            });
+            this.$message.success('URL上传成功:' + this.imageUrl);
+            this.urlDialogVisible = false;
+            this.imageUrl = '';
+          } else {
+            this.$message.error('请输入有效的图片URL');
+          }
+        },
+        addPasteListener() {
+          document.addEventListener('paste', this.handlePaste);
+        },
+        removePasteListener() {
+          document.removeEventListener('paste', this.handlePaste);
+        }
+      }
+    });
+
+    document.getElementById('connect-wallet').addEventListener('click', async () => {
+            try {
+                // 假设Sui SDK提供了全局对象SuiWallet 
+                const accounts = await suiWallet.features['standard:connect'].connect();
+                // 请求用户连接他们的Sui钱包
+                //const accounts = await suiWallet.connect();
+                document.getElementById('accountInfo').innerText = 'Connected account: ' + accounts[0];
+
+                // 获取账户余额
+                const balance = await suiWallet.getBalance();
+                document.getElementById('balanceInfo').innerText = 'Account balance: ' + balance;
+            } catch (error) {
+                console.error('Failed to connect wallet or get balance:', error);
+            }
+        }); 
+
+  </script>
+</body>
+</html>
